@@ -9,7 +9,7 @@
 
 #define TAILLE_BLOC_X 256
 #define NB_ELEM 16
-#define T 1
+#define T 1 //16
 
 //nb de bloc : gridDim.x
 //indice de parcours des blocs : blockIdx.x

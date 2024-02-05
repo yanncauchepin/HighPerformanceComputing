@@ -3,6 +3,22 @@
 #include <iostream>
 #include <cmath>
 
+void print_matrix (double** matrix, int size_row, int size_col) {
+    for (int i = 0; i<size_row ; ++i) {
+        for (int j = 0 ; j<size_col ; ++j) {
+            std::cout << matrix[i][j] << " " ;
+        }
+        std::cout << std::endl ;
+    }
+}
+
+void print_vector (double* vector, int size) {
+    for (int i = 0 ; i<size ; ++i) {
+        std::cout << vector[i] << " " ;
+    }
+    std::cout << std::endl ;
+}
+
 double** transpose (double** matrix, int size_row, int size_col) {
     double** transpose = new double*[size_col] ;
     for (int j = 0; j < size_col; ++j) {
@@ -95,55 +111,59 @@ double** cholesky (double** ATA, int size) {
         }
     }
     L[0][0] = sqrt(ATA[0][0]) ;
-
-    // ERROR
-    for (int i = 1; i < size; ++i) {
-        //L[i][0] = ATA[i][0] / L[0][0];
-        L[i][0] = ATA[i][0] / sqrt(ATA[0][0]) ;
-    }
-    /*
-    for (int i = 1 ; i < size ; ++i) {
-        double sum = 0 ;
-        for (int k = 0 ; k < i ; ++k) {
-            sum += pow(L[i][k], 2) ;
-        }
-        L[i][i] = sqrt(ATA[i][i] - sum) ;
-        for (int p = i + 1; p < size; ++p) {
-            sum = 0;
-            for (int k = 0; k < i; ++k) {
-                sum += L[i][k] * L[p][k];
+    for (int i = 1 ; i<size ; ++i) {
+        for (int j = 0 ; j<=i ; ++j) {
+            double sum = 0 ;
+            if (i == j) {
+                for (int k = 0 ; k<j ; ++k) {
+                    sum += pow(L[j][k], 2) ;
+                }
+                L[i][j] = sqrt(ATA[i][j] - sum) ;
+            } else  if ( j == 0) {
+                L[i][j] = (1 / L[j][j]) * (ATA[i][j]) ;
+            } else {
+                for (int k = 0 ; k<j ; ++k) {
+                    sum += (L[i][k] * L[j][k]) ;
+                }
+                L[i][j] = (1 / L[j][j]) * (ATA[i][j] - sum) ;
             }
-            L[p][i] = (ATA[i][p] - sum) / L[i][i];
         }
     }
-    */
     return L ;
 }
 
+
 int main() {
 
-    int size = 10 ;
-    double** A = new double*[size] ;
-    for (int i=0 ; i<size ; ++i) {
-        A[i] = new double[2] ;
+    int size_row = 10 ;
+    int size_col = 2 ;
+    double** A = new double*[size_row] ;
+    for (int i=0 ; i<size_row ; ++i) {
+        A[i] = new double[size_col] ;
     }
-    for (int i=0; i<size ; ++i) {
+    for (int i=0; i<size_row ; ++i) {
         A[i][0] = i ;
         A[i][1] = -1 ;
     }
-    double** AT = transpose(A, size, 2) ;
-    double* y_input = new double[size]{0.53, 0.53, 1.53, 2.53, 12.53, 21.53, 24.53, 28.53, 28.53, 30.53} ;
+    double** AT = transpose(A, size_row, size_col) ;
+    double* y_input = new double[size_row]{0.53, 0.53, 1.53, 2.53, 12.53, 21.53, 24.53, 28.53, 28.53, 30.53} ;
     int K = 30.54 ;
-    double* b = flogit(y_input, size, K) ;
-    double** ATA = multiply_transposed_matrix_by_matrix(A, size, 2) ;
-
-    // ERROR
-    double** L = cholesky(ATA, size) ;
-    /*
-    double* w = multiply_matrix_by_vector(AT, b, size, 2) ;
-    double* y = forward_substitution(L, w, size) ;
-    double** LT = transpose(L, size, size) ;
-    double* x = backward_substitution(LT, y, size) ;
-    std::cout << "Result : " << x[0] << ", " << x[1] <<std::endl ;
-    */
+    double* b = flogit(y_input, size_row, K) ;
+    double** ATA = multiply_transposed_matrix_by_matrix(A, size_row, size_col) ;
+    double** L = cholesky(ATA, size_col) ;
+    std::cout << "Matrix L : " << std::endl ;
+    print_matrix(L, size_col, size_col) ;
+    double** LT = transpose(L, size_col, size_col) ;
+    std::cout << "Matrix LT : " << std::endl ;
+    print_matrix(LT, size_col, size_col) ;
+    double* w = multiply_matrix_by_vector(AT, b, size_col, 2) ;
+    std::cout << "Vector w : " ;
+    print_vector(w, size_col) ;
+    double* y = forward_substitution(L, w, size_col) ;
+    std::cout << "Vector y : " ;
+    print_vector(y, size_col) ;
+    double* x = backward_substitution(LT, y, size_col) ;
+    std::cout << "Result x : " ;
+    print_vector(x, size_col) ;
+    // κ, α, ρ = 30.54, 5.163, 1.188
 }

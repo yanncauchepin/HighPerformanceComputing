@@ -8,7 +8,7 @@
 #include "defs.h"
 
 #define TAILLE_BLOC_X 256
-#define NB_ELEM 32
+#define NB_ELEM 32 //16
 
 //nb de bloc : gridDim.x
 //indice de parcours des blocs : blockIdx.x
@@ -25,7 +25,7 @@ __global__ void matmulKernel(REAL_T* d_A, REAL_T* d_B, REAL_T* d_C, int n,REAL_T
       int line_n = i*NB_ELEM+line;
       REAL_T temp = 0;
       for(int k=0; k<n; k++)
-         temp += d_A[line_n * n + k] * d_B[k];
+         temp += d_A[line_n * n + k] * d_B[k]; //temp += d_A[line_n * n + k] * d_B[line_n];
       d_C[line_n] = temp;
       REAL_T inter = temp*temp;
       atomicAdd(norm,inter);
