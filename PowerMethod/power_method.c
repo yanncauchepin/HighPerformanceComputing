@@ -122,9 +122,8 @@ int main (int argc, char* argv[]) {
     double* X = (double*) malloc (size * sizeof(double)) ;
     double* Y = (double*) malloc (size * sizeof(double)) ;
 
-    int n = size*size ;
     for (int i=0 ; i<size ; ++i) {
-        X[i] = 1.0/n ;
+        X[i] = 1.0/size ;
     }
 
     int iteration = 0 ;

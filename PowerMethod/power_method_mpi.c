@@ -201,9 +201,8 @@ int main (int argc, char* argv[]) {
             print_flattened_matrix(block, block_size, size) ;
     		}
         block = set_flattened_submatrix_from_file (input_file, 0, block_size, size) ;
-        int n = size*size ;
         for (int i=0 ; i<size ; ++i) {
-            X[i] = 1.0/n ;
+            X[i] = 1.0/size ;
         }
     		int iteration = 0;
     		total_error = INFINITY;

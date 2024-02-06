@@ -84,57 +84,14 @@ void write_vector_to_file (double* vector, int size, const char* file_path) {
     }
 }
 
-////////////////////////////////////////////////////////////////////////////////
-// From v1
-////////////////////////////////////////////////////////////////////////////////
-
-
-__global__ void multiplicationMatrixVectorKernel(double* d_matrix, double* d_vector, double* d_result, int size) {
+__global__ void multiplicationMatrixVectorKernel(double* d_matrix, double* d_vector, double* d_result, int size, int nb_row, double* norm) {
     unsigned int i = blockDim.x*blockIdx.x+threadIdx.x;
-    if (i < size) {
-        d_result[i] = 0;
-        for(int j=0; j<size ; j++) {
-            d_result[i] += d_matrix[i * size + j] * d_vector[j];
-        }
-    }
-}
-
-__global__ void getTotalNormKernel(double* d_vector, int size, double* norm) {
-    *norm = 0;
-    for (int i=0 ; i<size ; i++) {
-        *norm += pow(d_vector[i],2);
-    }
-    *norm = sqrt(*norm);
-}
-
-__global__ void applyNormKernel(double* d_vector, double* norm, int size) {
-    unsigned int i = blockDim.x*blockIdx.x+threadIdx.x;
-    if (i < size) {
-        d_vector[i] = d_vector[i]/(*norm);
-    }
-}
-
-__global__ void getErrorKernel(double* d_X, double* d_Y, double* error, int size) {
-    *error=0;
-    for (int i=0; i<size ; i++) {
-        *error += pow((d_X[i]-d_Y[i]),2);
-      }
-    *error = sqrt(*error);
-}
-
-////////////////////////////////////////////////////////////////////////////////
-// Transform OK
-////////////////////////////////////////////////////////////////////////////////
-
-
-__global__ void multiplicationMatrixVectorKernel(double* d_matrix, double* d_vector, double* d_result, int size, int nb_elem, double* norm) {
-    unsigned int i = blockDim.x*blockIdx.x+threadIdx.x;
-    if (i*nb_elem < size) {
-        for (int k=0 ; k<nb_elem ; k++) {
-            int index = i*nb_elem+k ;
+    if (i*nb_row < size) {
+        for (int k=0 ; k<nb_row ; k++) {
+            int index = i*nb_row+k ;
             d_result[index] = 0 ;
             for (int j=0 ; j<size ; j++) {
-                d_result[index] += d_matrix[index*size+k] * d_vector[l] ;
+                d_result[index] += d_matrix[index*size+j] * d_vector[j] ;
             }
             double squared_result = pow(d_result[index], 2) ;
             atomicAdd(norm, squared_result) ;
@@ -146,42 +103,21 @@ __global__ void sqrtTotalNormKernel(double* norm) {
     *norm = sqrt(*norm) ;
 }
 
-////////////////////////////////////////////////////////////////////////////////
-// To transform
-////////////////////////////////////////////////////////////////////////////////
-
-__global__ void applyNormKernel(double* d_vector, double* norm, int size) {
+__global__ void applyNormKernel(double* d_X, double* d_Y, double* norm, double* error, int size, int nb_row) {
     unsigned int i = blockDim.x*blockIdx.x+threadIdx.x;
-    if (i < size) {
-        d_vector[i] = d_vector[i]/(*norm);
+    if (i*nb_row < size) {
+        for (int k=0 ; k<nb_row ; k++) {
+           int index = i*nb_row + k ;
+           d_Y[index] = d_Y[index]/(*norm) ;
+           double squared_error = pow((d_X[index]-d_Y[index]), 2) ;
+           atomicAdd(error, squared_error) ;
+        }
     }
 }
 
-
-__global__ void normKernel(REAL_T* d_Y,REAL_T* d_X, REAL_T *norm, int n, REAL_T* erreur) {
-  unsigned int i = blockDim.x*blockIdx.x+threadIdx.x;
-
-  if (i*NB_ELEM < n)
-  {
-    REAL_T temp;
-    REAL_T inter;
-    for(int line = 0; line<NB_ELEM; line++)
-    {
-      int line_n = i*NB_ELEM+line;
-      temp = d_Y[line_n]/(*norm);
-      d_Y[line_n] = temp;
-      inter =  d_X[line_n] - temp;
-      inter = inter*inter;
-      atomicAdd(erreur,inter);
-    }
-  }
+__global__ void sqrtTotalErrorKernel(double* error) {
+    *error = sqrt(*error) ;
 }
-
-__global__ void errorKernel(REAL_T *erreur) {
-  *erreur = sqrt(*erreur);
-}
-
-////////////////////////////////////////////////////////////////////////////////
 
 int main (int argc, char* argv[]) {
 
@@ -205,12 +141,12 @@ int main (int argc, char* argv[]) {
     double* A = set_flattened_matrix_from_file(input_file, size, size) ;
     fclose(input_file) ;
 
-    int n = size*size ;
     for (int i=0 ; i<size ; ++i) {
-        X[i] = 1.0/n ;
+        X[i] = 1.0/size ;
     }
 
     int block_size = size ;
+    int nb_row = 25 ;
 
     // Allocation GPU
     double* d_A ;
@@ -225,8 +161,8 @@ int main (int argc, char* argv[]) {
     cudaMalloc((void **) &norm, 1);
 
     // Definition of GPU variables
-    dim3 ThreadsPerBlockSize(block_size);
-    dim3 GridSizeSize(block_size);
+    dim3 ThreadsPerBlockSize(block_size/nb_row);
+    dim3 GridSizeSize(size*size/block_size);
     dim3 ThreadsPerBlockUnitary(1);
     dim3 GridSizeUnitary(1);
 
@@ -235,23 +171,27 @@ int main (int argc, char* argv[]) {
     cudaMemcpy(d_X, X, size*sizeof(double), cudaMemcpyHostToDevice);
 
     int iteration = 0;
+    double zero = 0 ;
     double error_cpu = INFINITY;
     double start_time = gettimeofday_();
 
     // CALCULATION LOOP
     while (error_cpu > ERROR_THRESHOLD) {
 
-        // KERNEL 1 : Matrix multiplication
-        multiplicationMatrixVectorKernel<<< GridSizeSize, ThreadsPerBlockSize>>>(d_A, d_X, d_Y, size);
+        cudaMemcpy(norm, &zero, sizeof(double), cudaMemcpyHostToDevice) ;
+        cudaMemcpy(error_gpu, &zero, sizeof(double), cudaMemcpyHostToDevice) ;
+
+        // KERNEL 1 : Matrix multiplication + Total squared norm
+        multiplicationMatrixVectorKernel<<< GridSizeSize, ThreadsPerBlockSize>>>(d_A, d_X, d_Y, size, nb_row, norm) ;
 
         // KERNEL 2 : Total euclidean norm
-        getTotalNormKernel<<< ThreadsPerBlockUnitary, GridSizeUnitary>>>(d_Y, size,norm);
+        sqrtTotalNormKernel<<< ThreadsPerBlockUnitary, GridSizeUnitary>>>(norm) ;
 
-        // KERNEL 3 : Applies norm
-        applyNormKernel<<< GridSizeSize, ThreadsPerBlockSize>>>(d_Y, norm, size);
+        // KERNEL 3 : Applies norm + Total squared error
+        applyNormKernel<<< GridSizeSize, ThreadsPerBlockSize>>>(d_X, d_Y, norm, error_gpu, size, nb_row);
 
         // KERNEL 4 : Squared deviation to get error
-        getErrorKernel<<< ThreadsPerBlockUnitary, GridSizeUnitary>>>(d_Y, d_X, error_gpu, size);
+        sqrtTotalErrorKernel<<< ThreadsPerBlockUnitary, GridSizeUnitary>>>(error_gpu);
 
         //Synchronize GPU
         cudaDeviceSynchronize();
@@ -262,11 +202,20 @@ int main (int argc, char* argv[]) {
         iteration++ ;
         printf("Iteration %d, error : %lf\n", iteration, error_cpu) ;
 
+        // Old solution :
+        // cudaMemcpy(X, d_Y, size*sizeof(double), cudaMemcpyDeviceToHost);
+        // cudaMemcpy(d_X, X, size*sizeof(double), cudaMemcpyHostToDevice);
+        // New solution :
+        double* X_ = X;
         cudaMemcpy(X, d_Y, size*sizeof(double), cudaMemcpyDeviceToHost);
-        cudaMemcpy(d_X, X, size*sizeof(double), cudaMemcpyHostToDevice);
+        cudaMemcpy(d_X, X_, size*sizeof(double), cudaMemcpyHostToDevice);
+
     }
 
-    cudaMemcpy(Y, d_Y, size*sizeof(double), cudaMemcpyDeviceToHost);
+    // Old solution :
+    // cudaMemcpy(Y, d_Y, size*sizeof(double), cudaMemcpyDeviceToHost);
+    // New solution :
+    // -
 
     double total_time = gettimeofday_() - start_time;
     printf("Time of computing : %lf\n", total_time) ;

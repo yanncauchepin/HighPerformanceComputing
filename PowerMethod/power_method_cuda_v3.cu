@@ -1,6 +1,6 @@
-// power_method_cuda_v1.cu
-// Compiler : nvcc -o power_method_cuda_v1 power_method_cuda_v1.cu -lm
-// Run : ./power_method_cuda_v1 Input/input_test_1000.txt
+// power_method_cuda_v2.cu
+// Compiler : nvcc -o power_method_cuda_v2 power_method_cuda_v2.cu -lm
+// Run : ./power_method_cuda_v2 Input/input_test_1000.txt
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -84,39 +84,64 @@ void write_vector_to_file (double* vector, int size, const char* file_path) {
     }
 }
 
-__global__ void multiplicationMatrixVectorKernel(double* d_matrix, double* d_vector, double* d_result, int size) {
+////////////////////////////////////////////////////////////////////////////////
+
+__global__ void multiplicationMatrixVectorKernel(double* d_matrix, double* d_vector, double* d_result, int size, int T) {
+
+    int i_block = blockIdx.x ;
+    int i_block = blockIdx.y ;
+    int i_thread = threadIdx.x ;
+    int j_thread = threadIdx.y ;
+
+    __shared__ double A_[T][T] ;
+    __shared__ double B_[T] ;
+    if (j_thread == 0) {
+        double* p_d_B = d_B + (T*i_block) ;
+        B_[i_thread] = p_d_B[i_thread] ;
+    }
+
+    double* p_d_A = d_A + (size*T*i_block + T*j_block) ;
+    A_[i_thread][i_thread] = p_d_A[size*i_thread+j_thread] ;
+    __syncthreads() ;
+
+    double result = 0 ;
+    for (int l=0 ; l<T ; ++l) {
+        result += A_[i_thread][l] * B_[l] ;
+    }
+    __syncthreads() ;
+    atomicAdd(&d_result[i_thread], result) ;
+}
+
+__global__ void getSquaredNormKernel(double* d_vector, int nb_row, double* norm) {
+    unsigned int i = blockDim.x*blockIdx.x+threadIdx.x ;
+    double squared_norm = 0 ;
+    for (int k=0 ; k<nb_row ; k++) {
+        int index = i*nb_row+k ;
+        squared_norm = d_vector[index] ;
+    }
+    squared_norm = pow(squared_norm, 2) ;
+    atomicAdd(norm, squared_norm) ;
+}
+
+__global__ void sqrtTotalNormKernel(double* norm) {
+    *norm = sqrt(*norm) ;
+}
+
+__global__ void applyNormKernel(double* d_X, double* d_Y, double* norm, double* error, int size, int nb_row) {
     unsigned int i = blockDim.x*blockIdx.x+threadIdx.x;
-    if (i < size) {
-        d_result[i] = 0;
-        for(int j=0; j<size ; j++) {
-            d_result[i] += d_matrix[i * size + j] * d_vector[j];
+    if (i*nb_row < size) {
+        for (int k=0 ; k<nb_row ; k++) {
+           int index = i*nb_row + k ;
+           d_Y[index] = d_Y[index]/(*norm) ;
+           double squared_error = pow((d_X[index]-d_Y[index]), 2) ;
+           atomicAdd(error, squared_error) ;
         }
     }
 }
 
-__global__ void getTotalNormKernel(double* d_vector, int size, double* norm) {
-    *norm = 0;
-    for (int i=0 ; i<size ; i++) {
-        *norm += pow(d_vector[i],2);
-    }
-    *norm = sqrt(*norm);
+__global__ void sqrtTotalErrorKernel(double* error) {
+    *error = sqrt(*error) ;
 }
-
-__global__ void applyNormKernel(double* d_vector, double* norm, int size) {
-    unsigned int i = blockDim.x*blockIdx.x+threadIdx.x;
-    if (i < size) {
-        d_vector[i] = d_vector[i]/(*norm);
-    }
-}
-
-__global__ void getErrorKernel(double* d_X, double* d_Y, double* error, int size) {
-    *error=0;
-    for (int i=0; i<size ; i++) {
-        *error += pow((d_X[i]-d_Y[i]),2);
-      }
-    *error = sqrt(*error);
-}
-
 
 int main (int argc, char* argv[]) {
 
@@ -145,6 +170,8 @@ int main (int argc, char* argv[]) {
     }
 
     int block_size = size ;
+    int nb_row = 25 ;
+    int T = 1 ;
 
     // Allocation GPU
     double* d_A ;
@@ -159,8 +186,10 @@ int main (int argc, char* argv[]) {
     cudaMalloc((void **) &norm, 1);
 
     // Definition of GPU variables
-    dim3 ThreadsPerBlockSize(block_size);
-    dim3 GridSizeSize(block_size);
+    dim3 ThreadsPerBlock2D(T, T);
+    dim3 GridSize2D(ceil(size/T), ceil(size/T));
+    dim3 ThreadsPerBlockSize(block_size/nb_elem);
+    dim3 GridSizeSize(size*size/block_size);
     dim3 ThreadsPerBlockUnitary(1);
     dim3 GridSizeUnitary(1);
 
@@ -169,23 +198,28 @@ int main (int argc, char* argv[]) {
     cudaMemcpy(d_X, X, size*sizeof(double), cudaMemcpyHostToDevice);
 
     int iteration = 0;
+    double zero = 0 ;
     double error_cpu = INFINITY;
     double start_time = gettimeofday_();
 
     // CALCULATION LOOP
     while (error_cpu > ERROR_THRESHOLD) {
 
+        cudaMemcpy(norm, &zero, sizeof(double), cudaMemcpyHostToDevice) ;
+        cudaMemcpy(error_gpu, &zero, sizeof(double), cudaMemcpyHostToDevice) ;
+
         // KERNEL 1 : Matrix multiplication
-        multiplicationMatrixVectorKernel<<< GridSizeSize, ThreadsPerBlockSize>>>(d_A, d_X, d_Y, size);
+        multiplicationMatrixVectorKernel<<< GridSize2D, ThreadsPerBlock2D>>>(d_A, d_X, d_Y, size, T) ;
 
         // KERNEL 2 : Total euclidean norm
-        getTotalNormKernel<<< ThreadsPerBlockUnitary, GridSizeUnitary>>>(d_Y, size,norm);
+        getSquaredNormKernel<<< GridSizeSize, ThreadsPerBlockSize>>>(d_Y, nb_row, norm) ;
+        sqrtTotalNormKernell<<< ThreadsPerBlockUnitary, GridSizeUnitary>>>(norm) ;
 
-        // KERNEL 3 : Applies norm
-        applyNormKernel<<< GridSizeSize, ThreadsPerBlockSize>>>(d_Y, norm, size);
+        // KERNEL 3 : Applies norm + Squared deviation
+        applyNormKernel<<< GridSizeSize, ThreadsPerBlockSize>>>(d_X, d_Y, norm, error_gpu, size, nb_row) ;
 
-        // KERNEL 4 : Squared deviation to get error
-        getErrorKernel<<< ThreadsPerBlockUnitary, GridSizeUnitary>>>(d_Y, d_X, error_gpu, size);
+        // KERNEL 4 : Total euclidean error
+        sqrtTotalErrorKernel<<< ThreadsPerBlockUnitary, GridSizeUnitary>>>(error_gpu);
 
         //Synchronize GPU
         cudaDeviceSynchronize();
