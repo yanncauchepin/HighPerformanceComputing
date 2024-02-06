@@ -4,7 +4,7 @@
 
 ### PowerMethod ###
 
-- [ ] Correct and MAJ reports.
+- [ ] Correct and upgrade reports.
 - [ ] Upgrade CUDA version to allow *atomicAdd* to be applied to double type.
 - [ ] CUDA : Check old vs new upgrade of X and Y at the end of each iteration.
 - [ ] Bug CUDA : error still infinite along iteration.
