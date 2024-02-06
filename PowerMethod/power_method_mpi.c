@@ -10,13 +10,6 @@
 
 #define ERROR_THRESHOLD 1e-5
 
-/*
-TO DO LIST :
-- When divide block_size, handle case size/number_processes = int + decimal where decimal non null
-- Check Optimize reading set_flattened_submatrix_from_file : error in pointer fseek depending on decimal of double values for example.
-- Check optimization with Ssend for example
-*/
-
 double gettimeofday_ () {
     struct timeval time ;
     gettimeofday (&time, NULL) ;
