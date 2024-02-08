@@ -1,8 +1,26 @@
-## TO DO LIST ##
+# High Performance Computing in C, Python, MPI and CUDA #
+
+## Prerequisites ##
+
+## Usage ##
+
+### Power Method ###
+
+#### Example ####
+
+### Cholesky ###
+
+#### Example ####
+
+### Mandelbrot ###
+
+#### Example ####
+
+## To do list ##
 
 - [ ] Add a summary to readme.
 
-### PowerMethod ###
+### Power Method ###
 
 - [ ] Correct and upgrade reports.
 - [ ] Upgrade CUDA version to allow *atomicAdd* to be applied to double type.
