@@ -52,3 +52,4 @@
 
 - [ ] Choose what to do with those files.
 - [ ] Upgrade files.
+- [ ] Adapt the repository to well developer traditions.
