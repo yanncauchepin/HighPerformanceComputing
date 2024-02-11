@@ -1,4 +1,5 @@
-# High Performance Computing in C, Python, MPI and CUDA #
+# High Performance Computing #
+> ### Language : C, Python, MPI, CUDA ###
 
 ## Prerequisites ##
 
